@@ -55,16 +55,20 @@ double degrees_to_radians(double a)
     return a/180.0 * M_PI; //180° = pi rad
 }
 
-int sphere_intersect(Sphere s, Vec3 d,Vec3*inter)
+int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
 {
-    double tc = vec_dot(s.center,d);
-    double ta2 = s.r*s.r-vec_dot(s.center,s.center)+tc*tc;
+    Vec3 oc = vec_substract(s.center,origin);
+    double tc = vec_dot(oc,d);
+    if(tc < 0.0)
+        return 0;
+    double ta2 = s.r*s.r-vec_dot(oc,oc)+tc*tc;
     if(ta2 < 0.0)
         return 0; //No collision
     double ta = sqrt(ta2);
     Vec3 p1 = vec_mul(d,(tc-ta)); //Intersection points
     Vec3 p2 = vec_mul(d,(tc+ta));
-    *inter=p1;
+    if(inter != NULL)
+        *inter=p1;
     return 1;
 }
 
@@ -78,25 +82,11 @@ int main(int argc, char *argv[])
 
     char * image = malloc(sizeof(char)*(w*h*3));
 
-    /*for(int y = 0; y < h; y++)
-    {
-        for(int x = 0; x < w; x++)
-        {
-            int index = (y*w+x)*3;
-            image[index+0] = 150;
-            image[index+1] = 120;
-            image[index+2] = 220;
-
-        }
-    }*/
-
-    /*double sphere_x = 20;
-    double sphere_y = 0;
-    double sphere_z = 100; //Positive axis: further away
-    double sphere_radius = 50;*/
     Sphere s = {{0.0,0,3.5},1.0, {220,150,150}};
-    Sphere s2 = {{-2.2,-3.0,5.0},3.0, {50,190,170}};
-    Vec3 light = {-10.0,5.0,5.0};
+    Sphere s2 = {{0.0,-3.0,5.0},3.0, {50,190,170}};
+    Vec3 light = {-10.0,5.0,0.0};
+
+    Vec3 origin = {0.0, 0.0, 0.0};
 
     for(int y = 0; y < h; y++)
     {
@@ -104,56 +94,58 @@ int main(int argc, char *argv[])
         {
             int index = (y*w+x)*3;
 
-            /*double src_x = x - center_image_x;
-            double src_y = y - center_image_y;
-            double src_z = 0.1;*/
-            //Vec3 view_vec = {(x-center_image_x)/5.0,-(y-center_image_y)/5.0,10.85};
             double fov = 80.0;
             double fov_rad = degrees_to_radians(fov/2.0);
             double step = tan(fov_rad)*2.0/w;
-            Vec3 view_vec = {(x-center_image_x)*step,(y-center_image_y)*step*h/w,1};
+            Vec3 view_vec = {(x-center_image_x)*step,-(y-center_image_y)*step*h/w,1};
             view_vec = vec_normalize(view_vec);
             Vec3 inter;
 
-            //double distance = (src_x-sphere_x)*(src_x-sphere_x)+(src_y-sphere_y)*(src_y-sphere_y);
-            //if(distance <= sphere_radius*sphere_radius)
-            if(sphere_intersect(s,view_vec,&inter) == 1)
+            if(sphere_intersect(s,origin, view_vec,&inter) == 1)
             {
-                /*image[index+0] = 220;
-                image[index+1] = 150;
-                image[index+2] = 150;*/
-
-                //Vec3 color = {220,150,150};
-
-                /*if(inter.y < 1.0)
-                {
-                    image[index+0] = 0;
-                    image[index+1] = 0;
-                }*/
-                /*image[index+0] = inter.x*80;
-                image[index+1] = inter.y*80;
-                image[index+2] = inter.z*80;*/
-
                 Vec3 light_dir = vec_normalize(vec_substract(light,inter));
-                Vec3 normale = vec_normalize(vec_substract(inter,s.center));
-                double luminosity = vec_dot(light_dir,normale);
-                luminosity *= luminosity; //squared
-                luminosity = 1.0 - luminosity;
-                //luminosity*=1.35;
-                Vec3 color = vec_mul(s.color,luminosity);
+                Vec3 color;
+                if(sphere_intersect(s,inter,light_dir,NULL) == 1 || sphere_intersect(s2,inter,light_dir,NULL) == 1) //light blocked => shadow
+                {
+                    color = vec_mul(s.color,0.6);
+                    //color = vec_clamp(color,0,255);
+                }
+                else
+                {
+                    Vec3 normale = vec_normalize(vec_substract(inter,s.center));
+                    double luminosity = vec_dot(light_dir,normale);
+                    luminosity *= luminosity; //squared
+                    //luminosity = 1.0 - luminosity;
+                    //luminosity = max(luminosity,0.8);
+                    luminosity = luminosity*0.4+0.6;
+                    //luminosity*=1.35;
+                    color = vec_mul(s.color,luminosity);
+                }
+
                 image[index+0] = max(0,min(color.x,255));
                 image[index+1] = max(0,min(color.y,255));
                 image[index+2] = max(0,min(color.z,255));
             }
-            else if(sphere_intersect(s2,view_vec,&inter) == 1)
+            else if(sphere_intersect(s2,origin,view_vec,&inter) == 1)
             {
                 Vec3 light_dir = vec_normalize(vec_substract(light,inter));
-                Vec3 normale = vec_normalize(vec_substract(inter,s2.center));
-                double luminosity = vec_dot(light_dir,normale);
-                luminosity *= luminosity; //squared
-                luminosity = 1.0 - luminosity;
-                //luminosity*=1.35;
-                Vec3 color = vec_mul(s2.color,luminosity);
+                Vec3 color;
+                if(sphere_intersect(s,inter,light_dir,NULL) == 1 || sphere_intersect(s2,inter,light_dir,NULL) == 1) //light blocked => shadow
+                {
+                    color = vec_mul(s2.color,0.6);
+                    //color = vec_clamp(color,0,255);
+                }
+                else
+                {
+                    Vec3 normale = vec_normalize(vec_substract(inter,s2.center));
+                    double luminosity = vec_dot(light_dir,normale);
+                    luminosity *= luminosity; //squared
+                    //luminosity = 1.0 - luminosity;
+                    luminosity = luminosity*0.4+0.6;
+                    //luminosity*=1.35;
+                    color = vec_mul(s2.color,luminosity);
+                }
+
                 image[index+0] = max(0,min(color.x,255));
                 image[index+1] = max(0,min(color.y,255));
                 image[index+2] = max(0,min(color.z,255));

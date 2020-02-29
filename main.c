@@ -44,6 +44,18 @@ Vec3 vec_substract(Vec3 a, Vec3 b)
     return res;
 }
 
+Vec3 vec_add(Vec3 a, Vec3 b)
+{
+    Vec3 res = {a.x+b.x, a.y+b.y, a.z+b.z};
+    return res;
+}
+
+Vec3 vec_prod(Vec3 a, Vec3 b)
+{
+    Vec3 res = {a.x*b.x, a.y*b.y, a.z*b.z};
+    return res;
+}
+
 Vec3 vec_normalize(Vec3 v)
 {
     double length = sqrt(vec_dot(v,v));
@@ -72,6 +84,15 @@ int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
     return 1;
 }
 
+Vec3 reflect(Vec3 n, Vec3 d)
+{
+    /*Vec3 dst = vec_substract(v,n);
+    dst = vec_mul(dst,-1.0);
+    Vec3 res = vec_normalize(vec_add(n,dst));
+    return res;*/
+    return vec_substract(d,vec_mul(n,2*vec_dot(n,d)));
+}
+
 double clamp_rand(double min, double max)
 {
     double range = max -min;
@@ -90,9 +111,14 @@ int main(int argc, char *argv[])
 
     char * image = malloc(sizeof(char)*(w*h*3));
 
-    Sphere s = {{0.0,1.0,4.0},1.0, {220,150,150}};
-    Sphere s2 = {{0.0,-3.0,7.0},3.0, {50,190,170}};
-    Vec3 light = {7.0,5.0,-1.0};
+    //Sphere s = {{0.0,1.0,4.0},1.0, {220,150,150}};
+    //Sphere s2 = {{0.0,-3.0,7.0},3.0, {50,190,170}};
+
+    Vec3 lightPos = {7.0,5.0,-1.0};
+    Vec3 lightColor = {1.0,1.0,1.0};
+    double ambientStrength = 0.1;
+    Vec3 ambient = vec_mul(lightColor,ambientStrength);
+    double specularStrength = 1.0;
 
     Vec3 origin = {0.0, 0.0, 0.0};
 
@@ -105,7 +131,7 @@ int main(int argc, char *argv[])
     {
         Sphere t = {    {clamp_rand(-5,5),clamp_rand(-5,5),clamp_rand(5,30.0)},
                         clamp_rand(0.2,2.0),
-                        {clamp_rand(0,255),clamp_rand(0,255),clamp_rand(0,255)}};
+                        {clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)}};
         objects[i] = t;
     }
 
@@ -121,15 +147,16 @@ int main(int argc, char *argv[])
             Vec3 view_vec = {(x-center_image_x)*step,-(y-center_image_y)*step*h/w,1};
             view_vec = vec_normalize(view_vec);
             Vec3 inter;
-            Vec3 finalColor = {150,120,220};
+            Vec3 finalColor = {230,210,250};
+            finalColor = vec_mul(finalColor,1.0/255.0);
             double nearestObject = 1000000000.0;
             for(int i = 0; i < NB_OBJECTS; i++)
             {
                 if((sphere_intersect(objects[i],origin, view_vec,&inter) == 1) && (inter.z <= nearestObject))
                 {
                     nearestObject = inter.z;
-                    Vec3 light_dir = vec_normalize(vec_substract(light,inter));
-                    //Vec3 color;
+                    Vec3 light_dir = vec_normalize(vec_substract(lightPos,inter));
+
                     int shadowed = 0;
                     for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
                     {
@@ -144,16 +171,21 @@ int main(int argc, char *argv[])
                     {
                         Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
                         double luminosity = vec_dot(light_dir,normale);
-                        luminosity *= luminosity; //squared
-                        //luminosity = 1.0 - luminosity;
-                        //luminosity = max(luminosity,0.8);
-                        luminosity = luminosity*0.6+0.4;
-                        //luminosity*=1.35;
-                        finalColor = vec_mul(objects[i].color,luminosity);
+
+                        luminosity = max(luminosity,0.0);
+                        Vec3 diffuse = vec_mul(lightColor,luminosity);
+
+                        Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
+                        double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),32);
+                        Vec3 specular = vec_mul(lightColor,spec*specularStrength);
+
+                        finalColor = vec_prod(vec_add(vec_add(diffuse,ambient),specular),objects[i].color);
                     }
 
                 }
             }
+
+            finalColor = vec_mul(finalColor,255);
 
             image[index+0] = max(0,min(finalColor.x,255));
             image[index+1] = max(0,min(finalColor.y,255));

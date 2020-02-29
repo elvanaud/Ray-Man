@@ -72,8 +72,16 @@ int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
     return 1;
 }
 
+double clamp_rand(double min, double max)
+{
+    double range = max -min;
+    double step = RAND_MAX/range;
+    return min+rand()/step;
+}
+
 int main(int argc, char *argv[])
 {
+    srand(time(NULL));
     int w = 400;
     int h = 400;
 
@@ -82,11 +90,24 @@ int main(int argc, char *argv[])
 
     char * image = malloc(sizeof(char)*(w*h*3));
 
-    Sphere s = {{0.0,0,3.5},1.0, {220,150,150}};
-    Sphere s2 = {{0.0,-3.0,5.0},3.0, {50,190,170}};
-    Vec3 light = {-10.0,5.0,0.0};
+    Sphere s = {{0.0,1.0,4.0},1.0, {220,150,150}};
+    Sphere s2 = {{0.0,-3.0,7.0},3.0, {50,190,170}};
+    Vec3 light = {7.0,5.0,-1.0};
 
     Vec3 origin = {0.0, 0.0, 0.0};
+
+    //const int NB_OBJECTS = 3;
+    //Sphere objects[3] = {s,s2,{{1.0,0.3,2.5},1.0,{380,200,400}}};
+
+    const int NB_OBJECTS = 30;
+    Sphere *objects = malloc(NB_OBJECTS*sizeof(Sphere));
+    for(int i = 0; i < NB_OBJECTS; i++)
+    {
+        Sphere t = {    {clamp_rand(-5,5),clamp_rand(-5,5),clamp_rand(5,30.0)},
+                        clamp_rand(0.2,2.0),
+                        {clamp_rand(0,255),clamp_rand(0,255),clamp_rand(0,255)}};
+        objects[i] = t;
+    }
 
     for(int y = 0; y < h; y++)
     {
@@ -100,63 +121,43 @@ int main(int argc, char *argv[])
             Vec3 view_vec = {(x-center_image_x)*step,-(y-center_image_y)*step*h/w,1};
             view_vec = vec_normalize(view_vec);
             Vec3 inter;
-
-            if(sphere_intersect(s,origin, view_vec,&inter) == 1)
+            Vec3 finalColor = {150,120,220};
+            double nearestObject = 1000000000.0;
+            for(int i = 0; i < NB_OBJECTS; i++)
             {
-                Vec3 light_dir = vec_normalize(vec_substract(light,inter));
-                Vec3 color;
-                if(sphere_intersect(s,inter,light_dir,NULL) == 1 || sphere_intersect(s2,inter,light_dir,NULL) == 1) //light blocked => shadow
+                if((sphere_intersect(objects[i],origin, view_vec,&inter) == 1) && (inter.z <= nearestObject))
                 {
-                    color = vec_mul(s.color,0.6);
-                    //color = vec_clamp(color,0,255);
-                }
-                else
-                {
-                    Vec3 normale = vec_normalize(vec_substract(inter,s.center));
-                    double luminosity = vec_dot(light_dir,normale);
-                    luminosity *= luminosity; //squared
-                    //luminosity = 1.0 - luminosity;
-                    //luminosity = max(luminosity,0.8);
-                    luminosity = luminosity*0.4+0.6;
-                    //luminosity*=1.35;
-                    color = vec_mul(s.color,luminosity);
-                }
+                    nearestObject = inter.z;
+                    Vec3 light_dir = vec_normalize(vec_substract(light,inter));
+                    //Vec3 color;
+                    int shadowed = 0;
+                    for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
+                    {
+                        if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
+                        {
+                            finalColor = vec_mul(objects[i].color,0.4);
+                            shadowed = 1;
+                            break;
+                        }
+                    }
+                    if(!shadowed)
+                    {
+                        Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
+                        double luminosity = vec_dot(light_dir,normale);
+                        luminosity *= luminosity; //squared
+                        //luminosity = 1.0 - luminosity;
+                        //luminosity = max(luminosity,0.8);
+                        luminosity = luminosity*0.6+0.4;
+                        //luminosity*=1.35;
+                        finalColor = vec_mul(objects[i].color,luminosity);
+                    }
 
-                image[index+0] = max(0,min(color.x,255));
-                image[index+1] = max(0,min(color.y,255));
-                image[index+2] = max(0,min(color.z,255));
-            }
-            else if(sphere_intersect(s2,origin,view_vec,&inter) == 1)
-            {
-                Vec3 light_dir = vec_normalize(vec_substract(light,inter));
-                Vec3 color;
-                if(sphere_intersect(s,inter,light_dir,NULL) == 1 || sphere_intersect(s2,inter,light_dir,NULL) == 1) //light blocked => shadow
-                {
-                    color = vec_mul(s2.color,0.6);
-                    //color = vec_clamp(color,0,255);
                 }
-                else
-                {
-                    Vec3 normale = vec_normalize(vec_substract(inter,s2.center));
-                    double luminosity = vec_dot(light_dir,normale);
-                    luminosity *= luminosity; //squared
-                    //luminosity = 1.0 - luminosity;
-                    luminosity = luminosity*0.4+0.6;
-                    //luminosity*=1.35;
-                    color = vec_mul(s2.color,luminosity);
-                }
-
-                image[index+0] = max(0,min(color.x,255));
-                image[index+1] = max(0,min(color.y,255));
-                image[index+2] = max(0,min(color.z,255));
-            }
-            else
-            {
-                image[index+0] = 150;
-                image[index+1] = 120;
-                image[index+2] = 220;
             }
 
+            image[index+0] = max(0,min(finalColor.x,255));
+            image[index+1] = max(0,min(finalColor.y,255));
+            image[index+2] = max(0,min(finalColor.z,255));
         }
     }
 

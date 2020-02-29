@@ -162,12 +162,13 @@ int main(int argc, char *argv[])
                     {
                         if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
                         {
-                            finalColor = vec_mul(objects[i].color,0.4);
+                            //finalColor = vec_mul(objects[i].color,0.4);
+                            //finalColor = vec_prod(ambient,objects[i].color);
                             shadowed = 1;
                             break;
                         }
                     }
-                    if(!shadowed)
+                    //if(!shadowed)
                     {
                         Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
                         double luminosity = vec_dot(light_dir,normale);
@@ -179,7 +180,7 @@ int main(int argc, char *argv[])
                         double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),32);
                         Vec3 specular = vec_mul(lightColor,spec*specularStrength);
 
-                        finalColor = vec_prod(vec_add(vec_add(diffuse,ambient),specular),objects[i].color);
+                        finalColor = vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].color);
                     }
 
                 }

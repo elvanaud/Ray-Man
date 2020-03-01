@@ -118,18 +118,32 @@ double clamp_rand(double min, double max)
 int main(int argc, char *argv[])
 {
     srand(time(NULL));
-    int w = 400;
-    int h = 400;
+    //int w = 2000;
+    //int h = 1500;
+
+    int w = 1280;
+    int h = 900;
 
     int center_image_x = w/2;
     int center_image_y = h/2;
 
     char * image = malloc(sizeof(char)*(w*h*3));
 
-    Light light = {{7.0,5.0,-1.0},{1.0,1.0,1.0}};
+    /*Light light = {{7.0,5.0,-1.0},{0.0,1.0,1.0}};
     light.ambientStrength = 0.1;
-    Vec3 ambient = vec_mul(light.color,light.ambientStrength); //?
+
+    Light light2 = {{-5.0,-3.0,-1.0},{1.0,0.0,0.0}};
+    light2.ambientStrength = 0.2;*/
+    //Vec3 ambient = vec_mul(light.color,light.ambientStrength); //?
     //double specularStrength = 1.0;
+    const int NB_LIGHTS = 4;
+    Light *lights = malloc(NB_LIGHTS*sizeof(Light));
+    for(int i = 0; i < NB_LIGHTS; i++)
+    {
+        Light l = {{clamp_rand(-100,100), clamp_rand(-100,100),clamp_rand(-100,100)},{clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)}};
+        l.ambientStrength = clamp_rand(0.0, 0.5);
+        lights[i] = l;
+    }
 
     Vec3 origin = {0.0, 0.0, 0.0};
 
@@ -163,29 +177,36 @@ int main(int argc, char *argv[])
                 if((sphere_intersect(objects[i],origin, view_vec,&inter) == 1) && (inter.z <= nearestObject))
                 {
                     nearestObject = inter.z;
-                    Vec3 light_dir = vec_normalize(vec_substract(light.pos,inter));
-
-                    int shadowed = 0;
-                    for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
+                    finalColor = origin;
+                    for(int l = 0; l < NB_LIGHTS; l++)
                     {
-                        if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
+                        Vec3 light_dir = vec_normalize(vec_substract(lights[l].pos,inter));
+
+                        int shadowed = 0;
+                        for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
                         {
-                            shadowed = 1;
-                            break;
+                            if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
+                            {
+                                shadowed = 1;
+                                break;
+                            }
                         }
+
+                        Vec3 ambient = vec_mul(lights[l].color,lights[l].ambientStrength);
+
+                        Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
+                        double luminosity = vec_dot(light_dir,normale);
+
+                        luminosity = max(luminosity,0.0);
+                        Vec3 diffuse = vec_mul(lights[l].color,luminosity);
+
+                        Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
+                        double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),objects[i].mat.specLevel);
+                        Vec3 specular = vec_mul(lights[l].color,spec*objects[i].mat.specularStrength);
+
+                        finalColor = vec_add(finalColor, vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].mat.color));
+                        //finalColor = vec_prod(specular,objects[i].mat.color);
                     }
-
-                    Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
-                    double luminosity = vec_dot(light_dir,normale);
-
-                    luminosity = max(luminosity,0.0);
-                    Vec3 diffuse = vec_mul(light.color,luminosity);
-
-                    Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
-                    double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),objects[i].mat.specLevel);
-                    Vec3 specular = vec_mul(light.color,spec*objects[i].mat.specularStrength);
-
-                    finalColor = vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].mat.color);
                 }
             }
 

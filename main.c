@@ -12,10 +12,25 @@ typedef struct
 
 typedef struct
 {
+    Vec3 color;
+    int specLevel;
+    double specularStrength;
+} Material;
+
+typedef struct
+{
     Vec3 center;
     double r;
-    Vec3 color;
+    Material mat;
 } Sphere;
+
+typedef struct
+{
+    Vec3 pos;
+    Vec3 color;
+    double ambientStrength;
+    double diffuseStrength;
+} Light;
 
 double max(double a, double b)
 {
@@ -111,19 +126,12 @@ int main(int argc, char *argv[])
 
     char * image = malloc(sizeof(char)*(w*h*3));
 
-    //Sphere s = {{0.0,1.0,4.0},1.0, {220,150,150}};
-    //Sphere s2 = {{0.0,-3.0,7.0},3.0, {50,190,170}};
-
-    Vec3 lightPos = {7.0,5.0,-1.0};
-    Vec3 lightColor = {1.0,1.0,1.0};
-    double ambientStrength = 0.1;
-    Vec3 ambient = vec_mul(lightColor,ambientStrength);
-    double specularStrength = 1.0;
+    Light light = {{7.0,5.0,-1.0},{1.0,1.0,1.0}};
+    light.ambientStrength = 0.1;
+    Vec3 ambient = vec_mul(light.color,light.ambientStrength); //?
+    //double specularStrength = 1.0;
 
     Vec3 origin = {0.0, 0.0, 0.0};
-
-    //const int NB_OBJECTS = 3;
-    //Sphere objects[3] = {s,s2,{{1.0,0.3,2.5},1.0,{380,200,400}}};
 
     const int NB_OBJECTS = 30;
     Sphere *objects = malloc(NB_OBJECTS*sizeof(Sphere));
@@ -131,7 +139,7 @@ int main(int argc, char *argv[])
     {
         Sphere t = {    {clamp_rand(-5,5),clamp_rand(-5,5),clamp_rand(5,30.0)},
                         clamp_rand(0.2,2.0),
-                        {clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)}};
+                        {{clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)},rand()%10<5?32:256,clamp_rand(0.1,2.0)}};
         objects[i] = t;
     }
 
@@ -155,34 +163,29 @@ int main(int argc, char *argv[])
                 if((sphere_intersect(objects[i],origin, view_vec,&inter) == 1) && (inter.z <= nearestObject))
                 {
                     nearestObject = inter.z;
-                    Vec3 light_dir = vec_normalize(vec_substract(lightPos,inter));
+                    Vec3 light_dir = vec_normalize(vec_substract(light.pos,inter));
 
                     int shadowed = 0;
                     for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
                     {
                         if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
                         {
-                            //finalColor = vec_mul(objects[i].color,0.4);
-                            //finalColor = vec_prod(ambient,objects[i].color);
                             shadowed = 1;
                             break;
                         }
                     }
-                    //if(!shadowed)
-                    {
-                        Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
-                        double luminosity = vec_dot(light_dir,normale);
 
-                        luminosity = max(luminosity,0.0);
-                        Vec3 diffuse = vec_mul(lightColor,luminosity);
+                    Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
+                    double luminosity = vec_dot(light_dir,normale);
 
-                        Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
-                        double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),32);
-                        Vec3 specular = vec_mul(lightColor,spec*specularStrength);
+                    luminosity = max(luminosity,0.0);
+                    Vec3 diffuse = vec_mul(light.color,luminosity);
 
-                        finalColor = vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].color);
-                    }
+                    Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
+                    double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),objects[i].mat.specLevel);
+                    Vec3 specular = vec_mul(light.color,spec*objects[i].mat.specularStrength);
 
+                    finalColor = vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].mat.color);
                 }
             }
 

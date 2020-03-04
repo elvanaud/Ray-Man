@@ -131,7 +131,7 @@ int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
     if(tc-ta <= 0.0) //first intersection behind us or is equal to origin
     {
         if(tc+ta <= 0.0) //useless condition as it can only happen if tc < 0
-            return 0.0;
+            return 0;
         p1 = p2;
     }
     if(inter != NULL)
@@ -226,6 +226,14 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 tmpNormal = vec_normalize(vec_substract(tmpInter,obj.center));
                 tmpMat = obj.mat;
                 intersection = 1;
+
+                if(tmpInter.z <= farthest) //TODO: maybe factorize code here (careful might cause graphical glitches if only put after the if else
+                {
+                    farthest = tmpInter.z,
+                    inter = tmpInter;
+                    normal = tmpNormal;
+                    mat = tmpMat;
+                }
             }
         }
         else if(objects[obstacle].type == TRIANGLE)
@@ -236,16 +244,18 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 tmpNormal = vec_normalize(vec_cross(vec_substract(obj.vertex0,obj.vertex1),vec_substract(obj.vertex2,obj.vertex1)));
                 tmpMat = obj.mat;
                 intersection = 1;
+
+                if(tmpInter.z <= farthest)
+                {
+                    farthest = tmpInter.z,
+                    inter = tmpInter;
+                    normal = tmpNormal;
+                    mat = tmpMat;
+                }
             }
         }
 
-        if(tmpInter.z <= farthest)
-        {
-            farthest = tmpInter.z,
-            inter = tmpInter;
-            normal = tmpNormal;
-            mat = tmpMat;
-        }
+
     }
 
     if(intersection && outInter != NULL)
@@ -312,91 +322,6 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
     }
     return finalColor;
 }
-/*Vec3 launchRay(Vec3 origin, Vec3 view_vec, Sphere * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter)
-{
-    Vec3 black = {0.0, 0.0, 0.0};
-    Vec3 red = {1.0,0.0,0.0};
-    Vec3 finalColor = {230,210,250};
-    finalColor = vec_mul(finalColor,1.0/255.0);
-    if(iter <= 0)
-        return finalColor;
-
-    iter--;
-
-    Vec3 inter;
-
-
-    double nearestObject = 1000000000.0;
-    for(int i = 0; i < NB_OBJECTS; i++)
-    {
-        if((sphere_intersect(objects[i],origin, view_vec,&inter) == 1) && (inter.z <= nearestObject))
-        {
-            nearestObject = inter.z;
-            Vec3 savedColor = objects[i].mat.color;
-            Vec3 normale = vec_normalize(vec_substract(inter,objects[i].center));
-
-            finalColor = black;
-
-            if(objects[i].mat.mirror)
-            {
-                finalColor = launchRay(inter,reflect(normale,view_vec),objects, NB_OBJECTS, lights, NB_LIGHTS,iter);
-            }
-            else if(objects[i].mat.refract)
-            {
-                //Vec3 tmpDir = refract(normale,vec_mul(view_vec,1.0),1.0/1.33);
-                //tmpDir = vec_normalize(tmpDir);
-                //if(sphere_intersect(objects[i],inter,tmpDir,&inter) != 1)
-                {
-                    //printf("allo\n");
-                }
-                Vec3 refract_dir = refract(vec_mul(normale,1.0),vec_mul(view_vec,1.0),1.0/1.33);
-                //printf("%f,%f,%f  -- iter: %d\n",refract_dir.x,refract_dir.y,refract_dir.z,iter);
-                if(vec_dot(refract_dir, normale) <= 0.0)
-                {
-                  //  printf("ko %d\n",iter);
-                }
-                inter = vec_dot(normale,refract_dir) > 0.0 ? vec_add(inter,vec_mul(normale,0.001)) : vec_add(inter,vec_mul(normale,-0.001));
-                finalColor = launchRay(inter,refract_dir,objects, NB_OBJECTS, lights, NB_LIGHTS, iter);
-                //printf("%f,%f,%f  -- iter: %d\n",finalColor.x,finalColor.y,finalColor.z,iter);
-                //finalColor = vec_mul(finalColor,0.0);
-                //finalColor.x=1.0;
-            }
-
-            for(int l = 0; l < NB_LIGHTS; l++)
-            {
-                Vec3 light_dir = vec_normalize(vec_substract(lights[l].pos,inter));
-
-                int shadowed = 0;
-                for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
-                {
-                    if(sphere_intersect(objects[obstacle],inter,light_dir,NULL) == 1)
-                    {
-                        shadowed = 1;
-                        break;
-                    }
-                }
-
-                Vec3 ambient = vec_mul(lights[l].color,lights[l].ambientStrength);
-
-                double luminosity = vec_dot(light_dir,normale);
-                luminosity = max(luminosity,0.0);
-                Vec3 diffuse = vec_mul(lights[l].color,luminosity);
-
-                Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
-                double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),objects[i].mat.specLevel);
-                Vec3 specular = vec_mul(lights[l].color,spec*objects[i].mat.specularStrength);
-                if(objects[i].mat.mirror || objects[i].mat.refract)
-                {
-                    Vec3 blue = {0.0,0.0,0.0};
-                    ambient = diffuse = blue;
-                }
-
-                finalColor = vec_add(finalColor, vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),objects[i].mat.color));
-            }
-        }
-    }
-    return finalColor;
-}*/
 
 int main(int argc, char *argv[])
 {
@@ -423,12 +348,12 @@ int main(int argc, char *argv[])
 
     Vec3 origin = {0.0, 0.0, 0.0};
 
-    const int NB_OBJECTS = 20;
+    const int NB_OBJECTS = 30;
     Object *objects = malloc(NB_OBJECTS*sizeof(Object));
     for(int i = 0; i <= NB_OBJECTS-1; i++)
     {
-        int mirorring = 0;//rand()%100<20?1:0;
-        int refracting = 0;//rand()%100<20 && !mirorring?1:0;
+        int mirorring = rand()%100<10?1:0;
+        int refracting = rand()%100<10 && !mirorring?1:0;
         Sphere t = {    {clamp_rand(-5,5),clamp_rand(-5,5),clamp_rand(5,30.0)},
                         clamp_rand(0.2,2.0),
                         {{clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)},rand()%10<5?32:256,clamp_rand(0.1,2.0),mirorring,refracting}};

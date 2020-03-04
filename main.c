@@ -29,7 +29,20 @@ typedef struct
 typedef struct
 {
     Vec3 vertex0,vertex1,vertex2;
+    Material mat;
 } Triangle;
+
+enum {SPHERE,TRIANGLE};
+
+typedef struct
+{
+    int type;
+    union
+    {
+        Sphere sphere;
+        Triangle triangle;
+    };
+} Object;
 
 typedef struct
 {
@@ -115,9 +128,9 @@ int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
     double ta = sqrt(ta2);
     Vec3 p1 = vec_mul(d,(tc-ta)); //Intersection points
     Vec3 p2 = vec_mul(d,(tc+ta));
-    if(tc-ta <= 0.0)
+    if(tc-ta <= 0.0) //first intersection behind us or is equal to origin
     {
-        if(tc+ta <= 0.0)
+        if(tc+ta <= 0.0) //useless condition as it can only happen if tc < 0
             return 0.0;
         p1 = p2;
     }
@@ -175,23 +188,13 @@ Vec3 refract(Vec3 n, Vec3 i, double ratio) //Copied from wikipedia (Vecorial for
         ratio = 1.0 / ratio;
         cosTheta1 = -cosTheta1;
     }
-    //cosTheta1 = max(-1.0,min(1.0,cosTheta1));
-    double cosTheta2 = sqrt(1-(ratio*ratio*(1-cosTheta1*cosTheta1)));
+    double tmp = 1-(ratio*ratio*(1-cosTheta1*cosTheta1));
+    if(tmp < 0.0)
+        return i;
+    double cosTheta2 = sqrt(tmp); //negative sqrt?
     Vec3 refracted = vec_add(vec_mul(i,ratio), vec_mul(n,ratio*cosTheta1-cosTheta2));
     refracted = vec_normalize(refracted);
-    //if(1-(ratio*ratio*(1-cosTheta1*cosTheta1))<0.0)
-     //   refracted = vec_mul(refracted,0.0);
-    //refracted = vec_mul(refracted,-1.0);
     return refracted;
-    /*double left_part = ratio*cosTheta1;
-    double right_part = sqrt(1-ratio*ratio*(1-cosTheta1*cosTheta1));
-    double coef = left_part - right_part;
-    if(cosTheta1 < 0.0)
-    {
-        coef = left_part + right_part;
-    }
-    Vec3 refracted = vec_add(vec_mul(i,ratio),vec_mul(n,coef));
-    return refracted;*/
 }
 
 double clamp_rand(double min, double max)
@@ -201,7 +204,115 @@ double clamp_rand(double min, double max)
     return min+rand()/step;
 }
 
-Vec3 launchRay(Vec3 origin, Vec3 view_vec, Sphere * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter)
+int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_OBJECTS, Vec3 * outInter, Vec3 * outNorm,Material*outMat)
+{
+    Vec3 inter;
+    Vec3 normal;
+    Material mat;
+    double farthest = 1000000.0;
+    int intersection = 0;
+
+    for(int obstacle = 0; obstacle < NB_OBJECTS; obstacle++)
+    {
+        Vec3 tmpInter;
+        Vec3 tmpNormal;
+        Material tmpMat;
+
+        if(objects[obstacle].type == SPHERE)
+        {
+            Sphere obj = objects[obstacle].sphere;
+            if(sphere_intersect(obj,origin,view_vec,&tmpInter))
+            {
+                tmpNormal = vec_normalize(vec_substract(tmpInter,obj.center));
+                tmpMat = obj.mat;
+                intersection = 1;
+            }
+        }
+        else if(objects[obstacle].type == TRIANGLE)
+        {
+            Triangle obj = objects[obstacle].triangle;
+            if(triangle_intersect(origin,view_vec,obj,&tmpInter))
+            {
+                tmpNormal = vec_normalize(vec_cross(vec_substract(obj.vertex0,obj.vertex1),vec_substract(obj.vertex2,obj.vertex1)));
+                tmpMat = obj.mat;
+                intersection = 1;
+            }
+        }
+
+        if(tmpInter.z <= farthest)
+        {
+            farthest = tmpInter.z,
+            inter = tmpInter;
+            normal = tmpNormal;
+            mat = tmpMat;
+        }
+    }
+
+    if(intersection && outInter != NULL)
+        *outInter = inter;
+    if(intersection && outNorm != NULL)
+        *outNorm = normal;
+    if(intersection && outMat != NULL)
+        *outMat = mat;
+    return intersection;
+}
+
+Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter)
+{
+    Vec3 black = {0.0, 0.0, 0.0};
+    Vec3 red = {1.0,0.0,0.0};
+    Vec3 finalColor = {230,210,250};
+    finalColor = vec_mul(finalColor,1.0/255.0);
+    if(iter <= 0)
+        return finalColor;
+    iter--;
+
+    Vec3 inter;
+    Vec3 normale;
+    Material mat;
+    if(objects_intersect(origin,view_vec,objects,NB_OBJECTS,&inter,&normale,&mat))
+    {
+        finalColor = black;
+
+        if(mat.mirror)
+        {
+            finalColor = launchRay(inter,reflect(normale,view_vec),objects, NB_OBJECTS, lights, NB_LIGHTS,iter);
+        }
+        else if(mat.refract)
+        {
+
+            Vec3 refract_dir = refract(vec_mul(normale,1.0),vec_mul(view_vec,1.0),1.0/1.33);
+            inter = vec_dot(normale,refract_dir) > 0.0 ? vec_add(inter,vec_mul(normale,0.001)) : vec_add(inter,vec_mul(normale,-0.001));
+            finalColor = launchRay(inter,refract_dir,objects, NB_OBJECTS, lights, NB_LIGHTS, iter);
+        }
+
+        for(int l = 0; l < NB_LIGHTS; l++)
+        {
+            Vec3 light_dir = vec_normalize(vec_substract(lights[l].pos,inter));
+
+            int shadowed = objects_intersect(inter,light_dir,objects,NB_OBJECTS,NULL,NULL,NULL);
+
+            Vec3 ambient = vec_mul(lights[l].color,lights[l].ambientStrength);
+
+            double luminosity = vec_dot(light_dir,normale);
+            luminosity = max(luminosity,0.0);
+            Vec3 diffuse = vec_mul(lights[l].color,luminosity);
+
+            Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
+            double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),mat.specLevel);
+            Vec3 specular = vec_mul(lights[l].color,spec*mat.specularStrength);
+            if(mat.mirror || mat.refract)
+            {
+                Vec3 blue = {0.0,0.0,0.0};
+                ambient = diffuse = blue;
+            }
+
+            finalColor = vec_add(finalColor, vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),mat.color));
+        }
+    }
+    return finalColor;
+}
+/*Vec3 launchRay(Vec3 origin, Vec3 view_vec, Sphere * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter)
 {
     Vec3 black = {0.0, 0.0, 0.0};
     Vec3 red = {1.0,0.0,0.0};
@@ -285,7 +396,7 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Sphere * objects, const int NB_OBJECT
         }
     }
     return finalColor;
-}
+}*/
 
 int main(int argc, char *argv[])
 {
@@ -312,22 +423,26 @@ int main(int argc, char *argv[])
 
     Vec3 origin = {0.0, 0.0, 0.0};
 
-    const int NB_OBJECTS = 2;
-    Sphere *objects = malloc(NB_OBJECTS*sizeof(Sphere));
-    /*for(int i = 0; i < NB_OBJECTS-1; i++)
+    const int NB_OBJECTS = 20;
+    Object *objects = malloc(NB_OBJECTS*sizeof(Object));
+    for(int i = 0; i <= NB_OBJECTS-1; i++)
     {
         int mirorring = 0;//rand()%100<20?1:0;
-        int refracting = rand()%100<20 && !mirorring?1:0;
+        int refracting = 0;//rand()%100<20 && !mirorring?1:0;
         Sphere t = {    {clamp_rand(-5,5),clamp_rand(-5,5),clamp_rand(5,30.0)},
                         clamp_rand(0.2,2.0),
                         {{clamp_rand(0,1.0),clamp_rand(0,1.0),clamp_rand(0,1.0)},rand()%10<5?32:256,clamp_rand(0.1,2.0),mirorring,refracting}};
-        objects[i] = t;
-    }*/
-    Sphere s1 = {{0.0,1.0,5.0},1.0,{{1.0,0.0,0.0},32,0.1,0,0}};
-    objects[0] = s1;
-    Sphere transparent_sphere = {{1.0,0.2,3.0},0.7,{{0.0,1.0,1.0},32,0.1,0,1}};
+        Object o; o.type = SPHERE;
+        o.sphere = t;
+        objects[i] = o;
+    }
+    /*Sphere s1 = {{0.0,1.0,5.0},1.0,{{1.0,0.0,0.0},32,0.1,0,0}};
+    Object o1 = {SPHERE}; o1.sphere = s1;
+    objects[0] = o1;
+    Sphere transparent_sphere = {{0.5,0.2,3.5},0.7,{{0.0,1.0,1.0},32,0.1,0,1}};
     printf("%d\n",transparent_sphere.mat.refract);
-    objects[NB_OBJECTS-1] = transparent_sphere;
+    Object o2 = {SPHERE}; o2.sphere = transparent_sphere;
+    objects[NB_OBJECTS-1] = o2;*/
 
     for(int y = 0; y < h; y++)
     {

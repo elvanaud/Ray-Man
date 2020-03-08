@@ -5,6 +5,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 typedef struct
 {
     double x,y,z;
@@ -17,6 +20,9 @@ typedef struct
     double specularStrength;
     int mirror;
     int refract;
+
+    unsigned char * texture;
+    int w,h;
 } Material;
 
 typedef struct
@@ -141,12 +147,12 @@ int sphere_intersect(Sphere s, Vec3 origin, Vec3 d,Vec3*inter)
 //Copied from wikipedia
 int triangle_intersect(Vec3 rayOrigin, Vec3 rayVector, Triangle inTriangle, Vec3* outIntersectionPoint)
 {
-    const float EPSILON = 0.0000001;
+    const double EPSILON = 0.00000001;
     Vec3 vertex0 = inTriangle.vertex0;
     Vec3 vertex1 = inTriangle.vertex1;
     Vec3 vertex2 = inTriangle.vertex2;
     Vec3 edge1, edge2, h, s, q;
-    float a,f,u,v;
+    double a,f,u,v;
     edge1 = vec_substract(vertex1,vertex0);
     edge2 = vec_substract(vertex2,vertex0);
     h = vec_cross(rayVector,edge2);
@@ -157,13 +163,13 @@ int triangle_intersect(Vec3 rayOrigin, Vec3 rayVector, Triangle inTriangle, Vec3
     s = vec_substract(rayOrigin,vertex0);
     u = f * vec_dot(s,h);
     if (u < 0.0 || u > 1.0)
-        return 1;
+        return 0;
     q = vec_cross(s,edge1);
     v = f * vec_dot(rayVector,q);
     if (v < 0.0 || u + v > 1.0)
         return 0;
     // At this stage we can compute t to find out where the intersection point is on the line.
-    float t = f * vec_dot(edge2,q);
+    double t = f * vec_dot(edge2,q);
     if (t > EPSILON) // ray intersection
     {
         *outIntersectionPoint = vec_add(rayOrigin,vec_mul(rayVector,t));
@@ -178,7 +184,7 @@ Vec3 reflect(Vec3 n, Vec3 d)
     return vec_substract(d,vec_mul(n,2*vec_dot(n,d)));
 }
 
-Vec3 refract(Vec3 n, Vec3 i, double ratio) //Copied from wikipedia (Vecorial form of Snell-Descartes)
+Vec3 refract(Vec3 n, Vec3 i, double ratio) //Copied from wikipedia (Vectorial form of Snell-Descartes)
 {
     double cosTheta1 = vec_dot(n,vec_mul(i,-1.0));
 
@@ -202,6 +208,26 @@ double clamp_rand(double min, double max)
     double range = max -min;
     double step = RAND_MAX/range;
     return min+rand()/step;
+}
+
+double tri_area(Triangle tri)
+{
+    Vec3 base = vec_substract(tri.vertex2, tri.vertex0);
+    Vec3 side = vec_substract(tri.vertex1,tri.vertex0);
+    double t = vec_dot(side,vec_normalize(base));
+    double h2 = vec_dot(side,side)-t*t;
+    double area = sqrt(h2*vec_dot(base,base))/2.0;
+    return area;
+}
+void barycentric_interpolation(Triangle tri, Vec3 p, double * w0, double * w1, double * w2)
+{
+    double areaTotal = tri_area(tri);
+    Triangle t0 = {tri.vertex1,tri.vertex2,p};
+    Triangle t1 = {tri.vertex0,tri.vertex2,p};
+    Triangle t2 = {tri.vertex0,tri.vertex1,p};
+    *w0 = tri_area(t0)/areaTotal;
+    *w1 = tri_area(t1)/areaTotal;
+    *w2 = tri_area(t2)/areaTotal;
 }
 
 int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_OBJECTS, Vec3 * outInter, Vec3 * outNorm,Material*outMat)
@@ -241,9 +267,24 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
             Triangle obj = objects[obstacle].triangle;
             if(triangle_intersect(origin,view_vec,obj,&tmpInter))
             {
-                tmpNormal = vec_normalize(vec_cross(vec_substract(obj.vertex0,obj.vertex1),vec_substract(obj.vertex2,obj.vertex1)));
+                tmpNormal = vec_normalize(vec_cross(vec_substract(obj.vertex1,obj.vertex0),vec_substract(obj.vertex2,obj.vertex0)));
                 tmpMat = obj.mat;
                 intersection = 1;
+                //Barycentric interpolation here
+                double w0,w1,w2;
+                barycentric_interpolation(obj,tmpInter,&w0,&w1,&w2);
+                //red,green,blue
+                //Vec3 red = {1.0,0.0,0.0},green = {0.0,1.0,0.0},blue = {0.0,0.0,1.0};
+                Vec3 t0 = {0.0,1.0,0.0};
+                Vec3 t1 = {1.0,1.0,0.0};
+                Vec3 t2 = {0.0,0.0,0.0};
+                //tmpMat.color = vec_add(vec_mul(red,w0),vec_add(vec_mul(green,w1),vec_mul(blue,w2)));
+                Vec3 tex = vec_add(vec_mul(t0,w0),vec_add(vec_mul(t1,w1),vec_mul(t2,w2)));
+                int texX = tmpMat.w*tex.x;
+                int texY = tmpMat.h*tex.y;
+                Vec3 tmpColor = {tmpMat.texture[(texY*tmpMat.w+texX)*3],tmpMat.texture[(texY*tmpMat.w+texX)*3+1],tmpMat.texture[(texY*tmpMat.w+texX)*3+2]};
+                tmpColor = vec_mul(tmpColor,1.0/255.0);
+                tmpMat.color = tmpColor;
 
                 if(tmpInter.z <= farthest)
                 {
@@ -254,8 +295,6 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 }
             }
         }
-
-
     }
 
     if(intersection && outInter != NULL)
@@ -309,7 +348,8 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
             Vec3 diffuse = vec_mul(lights[l].color,luminosity);
 
             Vec3 reflectedLight = reflect(normale,vec_mul(light_dir,-1.0));
-            double spec = pow(max(vec_dot(reflectedLight,vec_mul(view_vec,-1.0)),0.0),mat.specLevel);
+            double v = vec_dot(reflectedLight,vec_mul(view_vec,-1.0));
+            double spec = pow(max(v,0.0),mat.specLevel);
             Vec3 specular = vec_mul(lights[l].color,spec*mat.specularStrength);
             if(mat.mirror || mat.refract)
             {
@@ -348,9 +388,9 @@ int main(int argc, char *argv[])
 
     Vec3 origin = {0.0, 0.0, 0.0};
 
-    const int NB_OBJECTS = 30;
+    const int NB_OBJECTS = 20;
     Object *objects = malloc(NB_OBJECTS*sizeof(Object));
-    for(int i = 0; i <= NB_OBJECTS-1; i++)
+    for(int i = 0; i < NB_OBJECTS-2; i++)
     {
         int mirorring = rand()%100<10?1:0;
         int refracting = rand()%100<10 && !mirorring?1:0;
@@ -361,6 +401,19 @@ int main(int argc, char *argv[])
         o.sphere = t;
         objects[i] = o;
     }
+    Material tri_mat = {{0.5,0.4,0.4},32,1.0,0,0};
+    int n;
+    tri_mat.texture = stbi_load("texture_ciment.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
+    Triangle t1 = {{-100.0,-20.0,2.0},{100.0,-20.0,2.0},{-100.0,-20.0,500.0},tri_mat}; //Triangle t1 = {{-0.9,-2.0,2.0},{0.5,-2.0,2.0},{-0.9,-2.0,500.0},tri_mat};
+
+    Object o_tri; o_tri.type = TRIANGLE; o_tri.triangle=t1;
+    objects[NB_OBJECTS-1] = o_tri;
+
+
+    Triangle t2 = {{-0.5,-0.5,1.0},{0.5,-0.5,1.0},{0.0,0.5,2.0},tri_mat};
+    Object o_tri2; o_tri2.type = TRIANGLE; o_tri2.triangle=t2;
+    objects[NB_OBJECTS-2] = o_tri2;
+
     /*Sphere s1 = {{0.0,1.0,5.0},1.0,{{1.0,0.0,0.0},32,0.1,0,0}};
     Object o1 = {SPHERE}; o1.sphere = s1;
     objects[0] = o1;
@@ -398,5 +451,6 @@ int main(int argc, char *argv[])
     }
 
     printf("RayMan\n");
+    stbi_image_free(tri_mat.texture);
     return 0;
 }

@@ -22,6 +22,7 @@ typedef struct
     int refract;
 
     unsigned char * texture;
+    unsigned char * normalMap;
     int w,h;
 } Material;
 
@@ -285,6 +286,8 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 Vec3 tmpColor = {tmpMat.texture[(texY*tmpMat.w+texX)*3],tmpMat.texture[(texY*tmpMat.w+texX)*3+1],tmpMat.texture[(texY*tmpMat.w+texX)*3+2]};
                 tmpColor = vec_mul(tmpColor,1.0/255.0);
                 tmpMat.color = tmpColor;
+                Vec3 tmpNormal_tmp = {tmpMat.normalMap[(texY*tmpMat.w+texX)*3],tmpMat.normalMap[(texY*tmpMat.w+texX)*3+1],tmpMat.normalMap[(texY*tmpMat.w+texX)*3+2]};
+                tmpNormal = vec_normalize(tmpNormal_tmp);
 
                 if(tmpInter.z <= farthest)
                 {
@@ -403,7 +406,9 @@ int main(int argc, char *argv[])
     }
     Material tri_mat = {{0.5,0.4,0.4},32,1.0,0,0};
     int n;
-    tri_mat.texture = stbi_load("texture_ciment.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
+    //tri_mat.texture = stbi_load("texture_ciment.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
+    tri_mat.texture = stbi_load("Rock_038_baseColor.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
+    tri_mat.normalMap = stbi_load("Rock_038_normal.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
     Triangle t1 = {{-100.0,-20.0,2.0},{100.0,-20.0,2.0},{-100.0,-20.0,500.0},tri_mat}; //Triangle t1 = {{-0.9,-2.0,2.0},{0.5,-2.0,2.0},{-0.9,-2.0,500.0},tri_mat};
 
     Object o_tri; o_tri.type = TRIANGLE; o_tri.triangle=t1;
@@ -452,5 +457,6 @@ int main(int argc, char *argv[])
 
     printf("RayMan\n");
     stbi_image_free(tri_mat.texture);
+    stbi_image_free(tri_mat.normalMap);
     return 0;
 }

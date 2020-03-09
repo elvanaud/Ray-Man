@@ -24,6 +24,9 @@ typedef struct
     unsigned char * texture;
     unsigned char * normalMap;
     int w,h;
+
+    double w0,w1,w2;
+    int type;
 } Material;
 
 typedef struct
@@ -37,9 +40,16 @@ typedef struct
 {
     Vec3 vertex0,vertex1,vertex2;
     Material mat;
+    Vec3 texCoord0,texCoord1,texCoord2;
 } Triangle;
 
-enum {SPHERE,TRIANGLE};
+typedef struct
+{
+    Triangle faces[12];
+    //Material mat;
+} Cubemap;
+
+enum {SPHERE,TRIANGLE,CUBEMAP};
 
 typedef struct
 {
@@ -48,6 +58,7 @@ typedef struct
     {
         Sphere sphere;
         Triangle triangle;
+        Cubemap cubemap;
     };
 } Object;
 
@@ -216,7 +227,7 @@ double tri_area(Triangle tri)
     Vec3 base = vec_substract(tri.vertex2, tri.vertex0);
     Vec3 side = vec_substract(tri.vertex1,tri.vertex0);
     double t = vec_dot(side,vec_normalize(base));
-    double h2 = vec_dot(side,side)-t*t;
+    double h2 = max(0.0,vec_dot(side,side)-t*t);
     double area = sqrt(h2*vec_dot(base,base))/2.0;
     return area;
 }
@@ -229,6 +240,56 @@ void barycentric_interpolation(Triangle tri, Vec3 p, double * w0, double * w1, d
     *w0 = tri_area(t0)/areaTotal;
     *w1 = tri_area(t1)/areaTotal;
     *w2 = tri_area(t2)/areaTotal;
+}
+
+Vec3 texture_sample(unsigned char * texture, Vec3 tex, int w, int h, int n)
+{
+    int texX = w*tex.x;
+    int texY = h*tex.y;
+    if(n!=3)n=3; //sorry i don't handle this for now
+    Vec3 color = {texture[(texY*w+texX)*n],texture[(texY*w+texX)*n+1],texture[(texY*w+texX)*n+2]};
+    color = vec_mul(color,1.0/255.0);
+    return color;
+}
+
+Cubemap make_cubemap(char * path)
+{
+    char * names[] = {"front.jpg","back.jpg","right.jpg","left.jpg","top.jpg","bottom.jpg"};
+    Material mat;
+    Cubemap cube = {{
+        {{-0.5,-0.5,0.5},{0.5,-0.5,0.5},{-0.5,0.5,0.5},mat,{0.0,1.0,0.0},{1.0,1.0,0.0},{0.0,0.0,0.0}}, //Front
+        {{-0.5,0.5,0.5},{0.5,0.5,0.5},{0.5,-0.5,0.5},mat,{0.0,0.0,0.0},{1.0,0.0,0.0},{1.0,1.0,0.0}},
+
+        {{0.5,-0.5,-0.5},{-0.5,-0.5,-0.5},{0.5,0.5,-0.5},mat,{0.0,1.0,0.0},{1.0,1.0,0.0},{0.0,0.0,0.0}}, //Back
+        {{0.5,0.5,-0.5},{-0.5,-0.5,-0.5},{-0.5,0.5,-0.5},mat,{0.0,0.0,0.0},{1.0,1.0,0.0},{1.0,0.0,0.0}},
+
+        {{-0.5,-0.5,-0.5},{-0.5,-0.5,0.5},{-0.5,0.5,-0.5},mat,{0.0,1.0,0.0},{1.0,1.0,0.0},{0.0,0.0,0.0}}, //Left (careful their left and right are inverted)
+        {{-0.5,0.5,-0.5},{-0.5,0.5,0.5},{-0.5,-0.5,0.5},mat,{0.0,0.0,0.0},{1.0,0.0,0.0},{1.0,1.0,0.0}},
+
+        {{0.5,-0.5,0.5},{0.5,-0.5,-0.5},{0.5,0.5,0.5},mat,{0.0,1.0,0.0},{1.0,1.0,0.0},{0.0,0.0,0.0}}, //Right
+        {{0.5,0.5,0.5},{0.5,-0.5,-0.5},{0.5,0.5,-0.5},mat,{0.0,0.0,0.0},{1.0,1.0,0.0},{1.0,0.0,0.0}},
+
+        {{-0.5,0.5,0.5},{0.5,0.5,0.5},{-0.5,0.5,-0.5},mat,{1.0,0.0,0.0},{0.0,0.0,0.0},{1.0,1.0,0.0}}, //Top
+        {{-0.5,0.5,-0.5},{0.5,0.5,0.5},{0.5,0.5,-0.5},mat,{1.0,1.0,0.0},{0.0,0.0,0.0},{0.0,1.0,0.0}},
+
+        {{-0.5,-0.5,-0.5},{0.5,-0.5,-0.5},{-0.5,-0.5,0.5},mat,{1.0,0.0,0.0},{0.0,0.0,0.0},{0.0,1.0,0.0}}, //Bottom
+        {{-0.5,-0.5,0.5},{0.5,-0.5,-0.5},{0.5,-0.5,0.5},mat,{1.0,1.0,0.0},{0.0,0.0,0.0},{0.0,1.0,0.0}}}};
+
+
+
+    for(int i = 0; i < 6; i++)
+    {
+        char * pathName = malloc(sizeof(char)*(1+strlen(path)+strlen(names[i])));
+        strcpy(pathName,path);
+        strcat(pathName,names[i]);
+        Material tri_mat;
+        int n;
+        tri_mat.texture = stbi_load(pathName,&tri_mat.w,&tri_mat.h,&n,3);
+        cube.faces[i*2+0].mat = tri_mat;
+        cube.faces[i*2+1].mat = tri_mat;
+    }
+
+    return cube;
 }
 
 int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_OBJECTS, Vec3 * outInter, Vec3 * outNorm,Material*outMat)
@@ -253,6 +314,7 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 tmpNormal = vec_normalize(vec_substract(tmpInter,obj.center));
                 tmpMat = obj.mat;
                 intersection = 1;
+                tmpMat.type = SPHERE;
 
                 if(tmpInter.z <= farthest) //TODO: maybe factorize code here (careful might cause graphical glitches if only put after the if else
                 {
@@ -272,22 +334,8 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
                 tmpMat = obj.mat;
                 intersection = 1;
                 //Barycentric interpolation here
-                double w0,w1,w2;
-                barycentric_interpolation(obj,tmpInter,&w0,&w1,&w2);
-                //red,green,blue
-                //Vec3 red = {1.0,0.0,0.0},green = {0.0,1.0,0.0},blue = {0.0,0.0,1.0};
-                Vec3 t0 = {0.0,1.0,0.0};
-                Vec3 t1 = {1.0,1.0,0.0};
-                Vec3 t2 = {0.0,0.0,0.0};
-                //tmpMat.color = vec_add(vec_mul(red,w0),vec_add(vec_mul(green,w1),vec_mul(blue,w2)));
-                Vec3 tex = vec_add(vec_mul(t0,w0),vec_add(vec_mul(t1,w1),vec_mul(t2,w2)));
-                int texX = tmpMat.w*tex.x;
-                int texY = tmpMat.h*tex.y;
-                Vec3 tmpColor = {tmpMat.texture[(texY*tmpMat.w+texX)*3],tmpMat.texture[(texY*tmpMat.w+texX)*3+1],tmpMat.texture[(texY*tmpMat.w+texX)*3+2]};
-                tmpColor = vec_mul(tmpColor,1.0/255.0);
-                tmpMat.color = tmpColor;
-                Vec3 tmpNormal_tmp = {tmpMat.normalMap[(texY*tmpMat.w+texX)*3],tmpMat.normalMap[(texY*tmpMat.w+texX)*3+1],tmpMat.normalMap[(texY*tmpMat.w+texX)*3+2]};
-                tmpNormal = vec_normalize(tmpNormal_tmp);
+                barycentric_interpolation(obj,tmpInter,&tmpMat.w0,&tmpMat.w1,&tmpMat.w2);
+                tmpMat.type = TRIANGLE;
 
                 if(tmpInter.z <= farthest)
                 {
@@ -309,7 +357,7 @@ int objects_intersect(Vec3 origin, Vec3 view_vec,Object * objects,const int NB_O
     return intersection;
 }
 
-Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter)
+Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECTS, Light*lights, const int NB_LIGHTS, int iter, Cubemap skymap)
 {
     Vec3 black = {0.0, 0.0, 0.0};
     Vec3 red = {1.0,0.0,0.0};
@@ -328,14 +376,24 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
 
         if(mat.mirror)
         {
-            finalColor = launchRay(inter,reflect(normale,view_vec),objects, NB_OBJECTS, lights, NB_LIGHTS,iter);
+            finalColor = launchRay(inter,reflect(normale,view_vec),objects, NB_OBJECTS, lights, NB_LIGHTS,iter,skymap);
         }
         else if(mat.refract)
         {
 
             Vec3 refract_dir = refract(vec_mul(normale,1.0),vec_mul(view_vec,1.0),1.0/1.33);
             inter = vec_dot(normale,refract_dir) > 0.0 ? vec_add(inter,vec_mul(normale,0.001)) : vec_add(inter,vec_mul(normale,-0.001));
-            finalColor = launchRay(inter,refract_dir,objects, NB_OBJECTS, lights, NB_LIGHTS, iter);
+            finalColor = launchRay(inter,refract_dir,objects, NB_OBJECTS, lights, NB_LIGHTS, iter,skymap);
+        }
+        if(mat.type == TRIANGLE)
+        {
+            Vec3 t0 = {0.0,1.0,0.0};
+            Vec3 t1 = {1.0,1.0,0.0};
+            Vec3 t2 = {0.0,0.0,0.0};
+
+            Vec3 tex = vec_add(vec_mul(t0,mat.w0),vec_add(vec_mul(t1,mat.w1),vec_mul(t2,mat.w2)));
+            mat.color = texture_sample(mat.texture,tex,mat.w,mat.h,3);
+            normale = vec_normalize(texture_sample(mat.normalMap,tex,mat.w,mat.h,3));
         }
 
         for(int l = 0; l < NB_LIGHTS; l++)
@@ -362,6 +420,24 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
 
             finalColor = vec_add(finalColor, vec_prod(vec_add(vec_mul(vec_add(diffuse,specular),1.0-shadowed),ambient),mat.color));
         }
+    }
+    else //Skybox
+    {
+        for(int i=0; i<12;i++)
+        {
+            Triangle tri = skymap.faces[i];
+            Vec3 sky_origin = {0.0,0.0,0.0};
+            if(triangle_intersect(sky_origin,view_vec,tri,&inter))
+            {
+                double w0,w1,w2;
+                barycentric_interpolation(tri,inter,&w0,&w1,&w2);
+
+                Vec3 tex = vec_add(vec_mul(tri.texCoord0,w0),vec_add(vec_mul(tri.texCoord1,w1),vec_mul(tri.texCoord2,w2)));
+                finalColor = texture_sample(tri.mat.texture,tex,tri.mat.w,tri.mat.h,3);
+                break;
+            }
+        }
+
     }
     return finalColor;
 }
@@ -393,7 +469,7 @@ int main(int argc, char *argv[])
 
     const int NB_OBJECTS = 20;
     Object *objects = malloc(NB_OBJECTS*sizeof(Object));
-    for(int i = 0; i < NB_OBJECTS-2; i++)
+    for(int i = 0; i < NB_OBJECTS; i++)
     {
         int mirorring = rand()%100<10?1:0;
         int refracting = rand()%100<10 && !mirorring?1:0;
@@ -409,23 +485,19 @@ int main(int argc, char *argv[])
     //tri_mat.texture = stbi_load("texture_ciment.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
     tri_mat.texture = stbi_load("Rock_038_baseColor.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
     tri_mat.normalMap = stbi_load("Rock_038_normal.jpg", &tri_mat.w, &tri_mat.h, &n, 3);
-    Triangle t1 = {{-100.0,-20.0,2.0},{100.0,-20.0,2.0},{-100.0,-20.0,500.0},tri_mat}; //Triangle t1 = {{-0.9,-2.0,2.0},{0.5,-2.0,2.0},{-0.9,-2.0,500.0},tri_mat};
+    Triangle t1 = {{-100.0,-50.0,2.0},{100.0,-50.0,2.0},{-100.0,-50.0,500.0},tri_mat}; //Triangle t1 = {{-0.9,-2.0,2.0},{0.5,-2.0,2.0},{-0.9,-2.0,500.0},tri_mat};
 
     Object o_tri; o_tri.type = TRIANGLE; o_tri.triangle=t1;
     objects[NB_OBJECTS-1] = o_tri;
 
 
-    Triangle t2 = {{-0.5,-0.5,1.0},{0.5,-0.5,1.0},{0.0,0.5,2.0},tri_mat};
+    /*Triangle t2 = {{-0.5,-0.5,1.0},{0.5,-0.5,1.0},{0.0,0.5,2.0},tri_mat};
     Object o_tri2; o_tri2.type = TRIANGLE; o_tri2.triangle=t2;
-    objects[NB_OBJECTS-2] = o_tri2;
+    objects[NB_OBJECTS-2] = o_tri2;*/
 
-    /*Sphere s1 = {{0.0,1.0,5.0},1.0,{{1.0,0.0,0.0},32,0.1,0,0}};
-    Object o1 = {SPHERE}; o1.sphere = s1;
-    objects[0] = o1;
-    Sphere transparent_sphere = {{0.5,0.2,3.5},0.7,{{0.0,1.0,1.0},32,0.1,0,1}};
-    printf("%d\n",transparent_sphere.mat.refract);
-    Object o2 = {SPHERE}; o2.sphere = transparent_sphere;
-    objects[NB_OBJECTS-1] = o2;*/
+    Cubemap skymap = make_cubemap("skybox/");
+    //Object o_sky; o_sky.type = CUBEMAP; o_sky.cubemap = skymap;
+    //objects[NB_OBJECTS-2] = o_sky;
 
     for(int y = 0; y < h; y++)
     {
@@ -436,10 +508,10 @@ int main(int argc, char *argv[])
             double fov = 80.0;
             double fov_rad = degrees_to_radians(fov/2.0);
             double step = tan(fov_rad)*2.0;
-            Vec3 view_vec = {(x-center_image_x)*step/w,-(y-center_image_y)*step/h,1};
+            Vec3 view_vec = {(x-center_image_x)*step/w,-(y-center_image_y+200.2)*step/h,1.0};
             view_vec = vec_normalize(view_vec);
 
-            Vec3 finalColor = launchRay(origin, view_vec, objects, NB_OBJECTS, lights, NB_LIGHTS, 40);
+            Vec3 finalColor = launchRay(origin, view_vec, objects, NB_OBJECTS, lights, NB_LIGHTS, 40,skymap);
 
             finalColor = vec_mul(finalColor,255);
 

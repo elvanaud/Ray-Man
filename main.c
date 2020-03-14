@@ -285,13 +285,43 @@ Vec3 vec_align(Vec3 dir, Vec3 v)
     return rotated;
 }
 
-Vec3 texture_sample(unsigned char * texture, Vec3 tex, int w, int h, int n)
+Vec3 vec_linear_interpolation(Vec3 a, Vec3 b, double r)
+{
+    Vec3 res = vec_add(a,vec_mul(vec_substract(b,a),r));
+    return res;
+}
+
+Vec3 texture_sample_nearest(unsigned char * texture, Vec3 tex, int w, int h, int n)
 {
     int texX = w*tex.x;
     int texY = h*tex.y;
     if(n!=3)n=3; //sorry i don't handle this for now
     Vec3 color = {texture[(texY*w+texX)*n],texture[(texY*w+texX)*n+1],texture[(texY*w+texX)*n+2]};
     color = vec_mul(color,1.0/255.0);
+    return color;
+}
+
+Vec3 texture_sample_bilinear(unsigned char * texture, Vec3 tex, int w, int h, int n)
+{
+    int left = w*tex.x;
+    int top = h*tex.y;
+    int right = ceil(w*tex.x);
+    int bottom = ceil(h*tex.y);
+
+    Vec3 topLeftCoord = {left/(double)w,top/(double)h};
+    Vec3 bottomLeftCoord = {left/(double)w,bottom/(double)h};
+    Vec3 topRightCoord = {right/(double)w,top/(double)h};
+    Vec3 bottomRightCoord = {right/(double)w,bottom/(double)h};
+
+    Vec3 topLeft = texture_sample_nearest(texture,topLeftCoord,w,h,n);
+    Vec3 bottomLeft = texture_sample_nearest(texture,bottomLeftCoord,w,h,n);
+    Vec3 topRight = texture_sample_nearest(texture,topRightCoord,w,h,n);
+    Vec3 bottomRight = texture_sample_nearest(texture,bottomRightCoord,w,h,n);
+
+    Vec3 tmpLeft = vec_linear_interpolation(topLeft,bottomLeft,h*tex.y-top);
+    Vec3 tmpRight = vec_linear_interpolation(topRight,bottomRight,h*tex.y-top);
+
+    Vec3 color = vec_linear_interpolation(tmpLeft,tmpRight,w*tex.x-left);
     return color;
 }
 
@@ -407,7 +437,7 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
     Vec3 finalColor = {230,210,250};
     finalColor = vec_mul(finalColor,1.0/255.0);
     if(iter <= 0)
-        return finalColor;
+        return finalColor; //TODO: adapt this and make refractions work
     iter--;
 
     Vec3 inter;
@@ -435,9 +465,9 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
             Vec3 t2 = {0.0,0.0,0.0};
 
             Vec3 tex = vec_add(vec_mul(t0,mat.w0),vec_add(vec_mul(t1,mat.w1),vec_mul(t2,mat.w2)));
-            mat.color = texture_sample(mat.texture,tex,mat.w,mat.h,3);
+            mat.color = texture_sample_bilinear(mat.texture,tex,mat.w,mat.h,3);
             Vec3 triangleNormal = normale;
-            normale = vec_normalize(texture_sample(mat.normalMap,tex,mat.w,mat.h,3));
+            normale = vec_normalize(texture_sample_bilinear(mat.normalMap,tex,mat.w,mat.h,3));
             normale = vec_align(triangleNormal,normale);
         }
 
@@ -478,7 +508,7 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
                 barycentric_interpolation(tri,inter,&w0,&w1,&w2);
 
                 Vec3 tex = vec_add(vec_mul(tri.texCoord0,w0),vec_add(vec_mul(tri.texCoord1,w1),vec_mul(tri.texCoord2,w2)));
-                finalColor = texture_sample(tri.mat.texture,tex,tri.mat.w,tri.mat.h,3);
+                finalColor = texture_sample_bilinear(tri.mat.texture,tex,tri.mat.w,tri.mat.h,3);
                 break;
             }
         }
@@ -489,8 +519,7 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
 
 int main(int argc, char *argv[])
 {
-    //srand(time(NULL));
-    srand(1);
+    srand(time(NULL));
     //int w = 2000;
     //int h = 1500;
 
@@ -567,7 +596,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    int result = stbi_write_png("output.png", w, h, 3, image, 0);
+    int result = stbi_write_png("images/output.png", w, h, 3, image, 0);
     if(result == 0)
     {
         printf("Error writing output file\n");

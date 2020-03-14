@@ -15,6 +15,11 @@ typedef struct
 
 typedef struct
 {
+    double s,x,y,z;
+} Quat;
+
+typedef struct
+{
     Vec3 color;
     int specLevel;
     double specularStrength;
@@ -242,6 +247,44 @@ void barycentric_interpolation(Triangle tri, Vec3 p, double * w0, double * w1, d
     *w2 = tri_area(t2)/areaTotal;
 }
 
+Quat quat_product(Quat a, Quat b)
+{
+    Vec3 vecA = {a.x,a.y,a.z};
+    Vec3 vecB = {b.x,b.y,b.z};
+
+    Vec3 vecPart = vec_add(vec_add(vec_mul(vecA,b.s),vec_mul(vecB,a.s)),vec_cross(vecA,vecB));
+
+    Quat result = {
+        a.s*b.s-vec_dot(vecA,vecB),
+        vecPart.x, vecPart.y, vecPart.z};
+    return result;
+}
+
+Quat quat_conjugate(Quat p, Quat q)
+{
+    Quat qInverse = {q.s,-q.x,-q.y,-q.z}; //Only if q is normalized
+    Quat result = quat_product(quat_product(q,p),qInverse);
+    return result;
+}
+
+Vec3 vec_rotate(Vec3 axis, double angle, Vec3 v)
+{
+    angle /= 2.0;
+    Quat rotation = {cos(angle),sin(angle)*axis.x,sin(angle)*axis.y,sin(angle)*axis.z};
+    Quat q = {0,v.x,v.y,v.z};
+    Quat result = quat_conjugate(q,rotation);
+    Vec3 rotated = {result.x,result.y,result.z};
+    return rotated;
+}
+
+Vec3 vec_align(Vec3 dir, Vec3 v)
+{
+    Vec3 axis = vec_cross(dir,v);
+    double angle = acos(vec_dot(dir,v));
+    Vec3 rotated = vec_rotate(axis,angle,v);
+    return rotated;
+}
+
 Vec3 texture_sample(unsigned char * texture, Vec3 tex, int w, int h, int n)
 {
     int texX = w*tex.x;
@@ -393,7 +436,9 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
 
             Vec3 tex = vec_add(vec_mul(t0,mat.w0),vec_add(vec_mul(t1,mat.w1),vec_mul(t2,mat.w2)));
             mat.color = texture_sample(mat.texture,tex,mat.w,mat.h,3);
+            Vec3 triangleNormal = normale;
             normale = vec_normalize(texture_sample(mat.normalMap,tex,mat.w,mat.h,3));
+            normale = vec_align(triangleNormal,normale);
         }
 
         for(int l = 0; l < NB_LIGHTS; l++)
@@ -444,7 +489,8 @@ Vec3 launchRay(Vec3 origin, Vec3 view_vec, Object * objects, const int NB_OBJECT
 
 int main(int argc, char *argv[])
 {
-    srand(time(NULL));
+    //srand(time(NULL));
+    srand(1);
     //int w = 2000;
     //int h = 1500;
 
@@ -491,9 +537,9 @@ int main(int argc, char *argv[])
     objects[NB_OBJECTS-1] = o_tri;
 
 
-    /*Triangle t2 = {{-0.5,-0.5,1.0},{0.5,-0.5,1.0},{0.0,0.5,2.0},tri_mat};
+    Triangle t2 = {{-0.5,-0.5,1.0},{0.3,-1.5,5.0},{0.0,0.0,7.0},tri_mat};
     Object o_tri2; o_tri2.type = TRIANGLE; o_tri2.triangle=t2;
-    objects[NB_OBJECTS-2] = o_tri2;*/
+    objects[NB_OBJECTS-2] = o_tri2;
 
     Cubemap skymap = make_cubemap("skybox/");
     //Object o_sky; o_sky.type = CUBEMAP; o_sky.cubemap = skymap;

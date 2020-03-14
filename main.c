@@ -285,6 +285,14 @@ Vec3 vec_align(Vec3 dir, Vec3 v)
     return rotated;
 }
 
+Triangle triangle_rotate(Triangle tri, Vec3 axis, double angle)
+{
+    tri.vertex0 = vec_rotate(axis,angle,tri.vertex0);
+    tri.vertex1 = vec_rotate(axis,angle,tri.vertex1);
+    tri.vertex2 = vec_rotate(axis,angle,tri.vertex2);
+    return tri;
+}
+
 Vec3 vec_linear_interpolation(Vec3 a, Vec3 b, double r)
 {
     Vec3 res = vec_add(a,vec_mul(vec_substract(b,a),r));
@@ -293,8 +301,8 @@ Vec3 vec_linear_interpolation(Vec3 a, Vec3 b, double r)
 
 Vec3 texture_sample_nearest(unsigned char * texture, Vec3 tex, int w, int h, int n)
 {
-    int texX = w*tex.x;
-    int texY = h*tex.y;
+    int texX = (w-1)*tex.x;
+    int texY = (h-1)*tex.y;
     if(n!=3)n=3; //sorry i don't handle this for now
     Vec3 color = {texture[(texY*w+texX)*n],texture[(texY*w+texX)*n+1],texture[(texY*w+texX)*n+2]};
     color = vec_mul(color,1.0/255.0);
@@ -303,7 +311,7 @@ Vec3 texture_sample_nearest(unsigned char * texture, Vec3 tex, int w, int h, int
 
 Vec3 texture_sample_bilinear(unsigned char * texture, Vec3 tex, int w, int h, int n)
 {
-    int left = w*tex.x;
+    int left = w*tex.x; //Careful 1.0*w = w(can't index texture[w]) see sample nearest ^
     int top = h*tex.y;
     int right = ceil(w*tex.x);
     int bottom = ceil(h*tex.y);
@@ -544,6 +552,9 @@ int main(int argc, char *argv[])
 
     const int NB_OBJECTS = 20;
     Object *objects = malloc(NB_OBJECTS*sizeof(Object));
+    /*Sphere s0 = {{0.0,-0.5,2.0},1.0,{{0.0,0.0,0.0},32,1.0,1,0}};
+    Object o0; o0.type = SPHERE; o0.sphere = s0;
+    objects[0] = o0;*/
     for(int i = 0; i < NB_OBJECTS; i++)
     {
         int mirorring = rand()%100<10?1:0;
@@ -566,13 +577,17 @@ int main(int argc, char *argv[])
     objects[NB_OBJECTS-1] = o_tri;
 
 
-    Triangle t2 = {{-0.5,-0.5,1.0},{0.3,-1.5,5.0},{0.0,0.0,7.0},tri_mat};
+    /*Triangle t2 = {{-0.5,-0.5,0.0},{0.5,-0.5,0.0},{0.0,0.5,0.0},tri_mat};
+    Vec3 axis = {1.0,1.0,0.0};
+    double angle = M_PI/4.0;
+    t2 = triangle_rotate(t2,axis,angle); //rotates vectors not coordinates (rotates around origin (camera position))
+    t2.vertex0.z += 1.0;
+    t2.vertex1.z += 1.0;
+    t2.vertex2.z += 1.0;
     Object o_tri2; o_tri2.type = TRIANGLE; o_tri2.triangle=t2;
-    objects[NB_OBJECTS-2] = o_tri2;
+    objects[NB_OBJECTS-2] = o_tri2;*/
 
     Cubemap skymap = make_cubemap("skybox/");
-    //Object o_sky; o_sky.type = CUBEMAP; o_sky.cubemap = skymap;
-    //objects[NB_OBJECTS-2] = o_sky;
 
     for(int y = 0; y < h; y++)
     {
